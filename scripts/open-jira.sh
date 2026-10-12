@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch-or-focus the Jira pane as a split beside the current pane.
+# Launch-or-focus the Jira pane below the current pane.
 # `plugin pane focus` succeeds only when a jira plugin pane is already open;
 # otherwise we open a fresh one.
 set -uo pipefail
@@ -14,5 +14,5 @@ exec "$herdr_bin" plugin pane open \
   --plugin herdr-jira \
   --entrypoint jira \
   --placement split \
-  --direction right \
+  --direction down \
   --focus

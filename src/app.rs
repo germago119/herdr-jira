@@ -168,7 +168,9 @@ impl App {
                     self.cfg = cfg;
                     self.client = Some(Arc::new(client));
                     self.fatal = None;
-                    self.filter_idx = self.filter_idx.min(self.cfg.filters.len().saturating_sub(1));
+                    self.filter_idx = self
+                        .filter_idx
+                        .min(self.cfg.filters.len().saturating_sub(1));
                     self.load_filter(self.filter_idx);
                 }
                 Err(e) => {
@@ -206,7 +208,9 @@ impl App {
     // ---- background requests ----
 
     fn spawn_search(&mut self, jql: String, title: String) {
-        let Some(client) = self.client.clone() else { return };
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         self.last_jql = jql.clone();
         self.loading = true;
         let tx = self.tx.clone();
@@ -217,7 +221,9 @@ impl App {
     }
 
     pub fn load_filter(&mut self, idx: usize) {
-        let Some(filter) = self.cfg.filters.get(idx).cloned() else { return };
+        let Some(filter) = self.cfg.filters.get(idx).cloned() else {
+            return;
+        };
         self.filter_idx = idx;
         let jql = self.cfg.expand_jql(&filter.jql);
         self.spawn_search(jql, filter.name);
@@ -232,8 +238,12 @@ impl App {
     }
 
     fn request_transitions(&mut self) {
-        let Some(issue) = self.selected_issue() else { return };
-        let Some(client) = self.client.clone() else { return };
+        let Some(issue) = self.selected_issue() else {
+            return;
+        };
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         let key = issue.key.clone();
         self.transitions_for = key.clone();
         self.transitions.clear();
@@ -248,19 +258,27 @@ impl App {
     }
 
     fn apply_transition(&mut self, t: Transition) {
-        let Some(client) = self.client.clone() else { return };
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         let key = self.transitions_for.clone();
         let tx = self.tx.clone();
         self.toast(format!("{key}: applying \"{}\"…", t.name), false);
         std::thread::spawn(move || {
             let result = client.apply_transition(&key, &t.id);
-            let _ = tx.send(Resp::Transitioned { key, name: t.to_status, result });
+            let _ = tx.send(Resp::Transitioned {
+                key,
+                name: t.to_status,
+                result,
+            });
         });
     }
 
     /// Expand the selected epic (fetching its children on first open).
     fn expand_epic(&mut self) {
-        let Some(issue) = self.selected_issue() else { return };
+        let Some(issue) = self.selected_issue() else {
+            return;
+        };
         if !is_epic(issue) {
             return;
         }
@@ -272,7 +290,9 @@ impl App {
             self.expanded.insert(key);
             return;
         }
-        let Some(client) = self.client.clone() else { return };
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         if !self.loading_children.insert(key.clone()) {
             return; // fetch already in flight
         }
@@ -292,7 +312,9 @@ impl App {
     /// epic and move the selection onto it.
     fn collapse_epic(&mut self) {
         let vis = self.visible();
-        let Some(&(issue, depth)) = vis.get(self.selected) else { return };
+        let Some(&(issue, depth)) = vis.get(self.selected) else {
+            return;
+        };
         let epic_key = if depth == 0 {
             if !(is_epic(issue) && self.expanded.contains(&issue.key)) {
                 return;
@@ -397,7 +419,9 @@ impl App {
     }
 
     fn delegate_to(&mut self, agent: HerdrAgent) {
-        let Some(issue) = self.selected_issue() else { return };
+        let Some(issue) = self.selected_issue() else {
+            return;
+        };
         let text = build_prompt(&self.cfg, issue);
         let key = issue.key.clone();
         let submit = self.cfg.delegate.submit;
@@ -417,7 +441,9 @@ impl App {
     /// Spawn a fresh agent in the chosen workspace + cwd, wait until ready,
     /// send the Jira prompt.
     fn start_new_and_delegate(&mut self, cwd_raw: String) {
-        let Some(issue) = self.selected_issue() else { return };
+        let Some(issue) = self.selected_issue() else {
+            return;
+        };
         let Some(spawn) = self.pending_spawn.clone() else {
             self.toast("no agent selected", true);
             return;
@@ -474,15 +500,9 @@ impl App {
             false,
         );
         std::thread::spawn(move || {
-            let result = herdr::start_and_delegate(
-                &opts,
-                &text,
-                submit,
-                delay,
-                startup,
-                wait_ready,
-            )
-            .map(|a| a.label);
+            let result =
+                herdr::start_and_delegate(&opts, &text, submit, delay, startup, wait_ready)
+                    .map(|a| a.label);
             let label = match &result {
                 Ok(l) => l.clone(),
                 Err(_) => agent_label,
@@ -499,7 +519,9 @@ impl App {
     }
 
     fn open_in_browser(&mut self) {
-        let Some(issue) = self.selected_issue() else { return };
+        let Some(issue) = self.selected_issue() else {
+            return;
+        };
         let url = issue.url.clone();
         #[cfg(target_os = "macos")]
         let opener = "open";
@@ -564,7 +586,10 @@ impl App {
                         // Still allow starting a new agent if list failed.
                         if self.can_start_new_agent() {
                             self.agents.clear();
-                            self.toast(format!("list agents failed ({e}); start new is available"), true);
+                            self.toast(
+                                format!("list agents failed ({e}); start new is available"),
+                                true,
+                            );
                         } else {
                             self.view = View::List;
                             self.toast(format!("agents: {e}"), true);
@@ -1010,6 +1035,8 @@ mod tests {
             status_category: "new".into(),
             issue_type: "Bug".into(),
             priority: "High".into(),
+            epic_link: "PROJ-1".into(),
+            epic_name: "Authentication".into(),
             assignee: "Vitalii".into(),
             reporter: "Someone".into(),
             updated: "2026-07-14 10:00".into(),
@@ -1020,10 +1047,8 @@ mod tests {
     }
 
     fn test_cfg(prompt: &str, max_desc: usize) -> Config {
-        let mut cfg: Config = toml::from_str(
-            "[jira]\nbase_url = \"https://x.atlassian.net\"\n",
-        )
-        .unwrap();
+        let mut cfg: Config =
+            toml::from_str("[jira]\nbase_url = \"https://x.atlassian.net\"\n").unwrap();
         cfg.delegate.prompt = prompt.into();
         cfg.delegate.max_description_chars = max_desc;
         cfg
@@ -1031,7 +1056,10 @@ mod tests {
 
     #[test]
     fn prompt_placeholders_are_filled() {
-        let cfg = test_cfg("{key}: {summary} [{status}/{priority}] {labels}\n{description}\n{url}", 0);
+        let cfg = test_cfg(
+            "{key}: {summary} [{status}/{priority}] {labels}\n{description}\n{url}",
+            0,
+        );
         let p = build_prompt(&cfg, &test_issue());
         assert_eq!(
             p,

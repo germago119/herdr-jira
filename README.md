@@ -39,6 +39,32 @@ Works with Jira Cloud (email + API token) and Jira Server / Data Center
 (personal access token). Cloud's newer `/rest/api/2/search/jql` endpoint is
 used when available, with automatic fallback to the classic `/rest/api/2/search`.
 
+## Install this fork
+
+Fork with UI patches (Jira pane opens as a split down, list/detail UI tweaks, epic names).
+
+Prerequisites: Rust toolchain (https://rustup.rs), herdr >= 0.9.0, your Jira server URL, and a Jira Personal Access Token (Jira profile page > Personal Access Tokens > Create token).
+
+```sh
+herdr plugin install germago119/herdr-jira --ref roger/jira-split-down-ui-patches
+```
+
+or clone and link:
+
+```sh
+git clone --branch roger/jira-split-down-ui-patches https://github.com/germago119/herdr-jira
+herdr plugin link ./herdr-jira
+```
+
+Config file: `~/.config/herdr/plugins/config/herdr-jira/config.toml`
+
+```sh
+mkdir -p ~/.config/herdr/plugins/config/herdr-jira
+cp config.example.toml ~/.config/herdr/plugins/config/herdr-jira/config.toml
+```
+
+Edit it with your URL, project key and token (`config.example.toml` uses placeholders: `https://jira.example.com`, `PROJECTKEY`, `YOUR_PERSONAL_ACCESS_TOKEN`). **Never commit the real config.toml.**
+
 ## Install
 
 Requires herdr **0.8.0+** and a Rust toolchain (https://rustup.rs) at install time.

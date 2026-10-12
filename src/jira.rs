@@ -9,6 +9,7 @@
 
 use base64::Engine;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Issue {
@@ -18,6 +19,8 @@ pub struct Issue {
     pub status_category: String, // "new" | "indeterminate" | "done"
     pub issue_type: String,
     pub priority: String,
+    pub epic_link: String,
+    pub epic_name: String,
     pub assignee: String,
     pub reporter: String,
     pub updated: String,
@@ -41,7 +44,7 @@ pub struct JiraClient {
     agent: ureq::Agent,
 }
 
-const FIELDS: &str = "summary,status,issuetype,priority,assignee,reporter,updated,labels,description";
+const FIELDS: &str = "summary,status,issuetype,priority,customfield_10000,assignee,reporter,updated,labels,description";
 
 impl JiraClient {
     pub fn new(cfg: &crate::config::Config) -> Result<Self, String> {
@@ -58,7 +61,11 @@ impl JiraClient {
                     base64::engine::general_purpose::STANDARD.encode(creds)
                 )
             }
-            other => return Err(format!("unknown [jira].auth \"{other}\" (use basic|bearer)")),
+            other => {
+                return Err(format!(
+                    "unknown [jira].auth \"{other}\" (use basic|bearer)"
+                ))
+            }
         };
         Ok(Self {
             base: cfg.jira.base_url.clone(),
@@ -109,28 +116,72 @@ impl JiraClient {
     }
 
     pub fn search(&self, jql: &str) -> Result<Vec<Issue>, String> {
-        let max = self.max_results.to_string();
-        let query: &[(&str, &str)] = &[
-            ("jql", jql),
-            ("maxResults", &max),
-            ("fields", FIELDS),
-        ];
-        // New endpoint first (Jira Cloud), classic /search as fallback (Server/DC).
-        let result = match self.get("/rest/api/2/search/jql", query) {
-            Ok(v) => Ok(v),
-            Err(e) if e.starts_with("HTTP 404") || e.starts_with("HTTP 405") || e.starts_with("HTTP 410") => {
-                self.get("/rest/api/2/search", query)
-            }
-            Err(e) => Err(e),
-        }?;
-        let issues = result["issues"]
+        let result = self.search_response(jql, FIELDS)?;
+        let mut issues: Vec<Issue> = result["issues"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .iter()
             .map(|v| self.parse_issue(v))
             .collect();
+        self.resolve_epic_names(&mut issues)?;
         Ok(issues)
+    }
+
+    fn search_response(&self, jql: &str, fields: &str) -> Result<Value, String> {
+        let max = self.max_results.to_string();
+        let query: &[(&str, &str)] = &[("jql", jql), ("maxResults", &max), ("fields", fields)];
+        // New endpoint first (Jira Cloud), classic /search as fallback (Server/DC).
+        match self.get("/rest/api/2/search/jql", query) {
+            Ok(v) => Ok(v),
+            Err(e)
+                if e.starts_with("HTTP 404")
+                    || e.starts_with("HTTP 405")
+                    || e.starts_with("HTTP 410") =>
+            {
+                self.get("/rest/api/2/search", query)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn resolve_epic_names(&self, issues: &mut [Issue]) -> Result<(), String> {
+        let keys: HashSet<&str> = issues
+            .iter()
+            .map(|issue| issue.epic_link.as_str())
+            .filter(|key| *key != "—")
+            .collect();
+        if keys.is_empty() {
+            return Ok(());
+        }
+        if keys.iter().any(|key| {
+            !key.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        }) {
+            return Err("Jira returned an invalid Epic Link key".into());
+        }
+        let mut keys: Vec<&str> = keys.into_iter().collect();
+        keys.sort_unstable();
+        let response = self.search_response(
+            &format!("key in ({})", keys.join(",")),
+            "summary,customfield_10002",
+        )?;
+        let names: HashMap<&str, String> = response["issues"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|epic| {
+                let key = epic["key"].as_str()?;
+                Some((key, epic_display_name(&epic["fields"])))
+            })
+            .collect();
+        for issue in issues {
+            issue.epic_name = names
+                .get(issue.epic_link.as_str())
+                .cloned()
+                .unwrap_or_else(|| issue.epic_link.clone());
+        }
+        Ok(())
     }
 
     fn parse_issue(&self, v: &Value) -> Issue {
@@ -154,6 +205,8 @@ impl JiraClient {
                 .to_string(),
             issue_type: f["issuetype"]["name"].as_str().unwrap_or("").to_string(),
             priority: f["priority"]["name"].as_str().unwrap_or("—").to_string(),
+            epic_link: f["customfield_10000"].as_str().unwrap_or("—").to_string(),
+            epic_name: f["customfield_10000"].as_str().unwrap_or("—").to_string(),
             assignee: person(&f["assignee"]),
             reporter: person(&f["reporter"]),
             updated: f["updated"]
@@ -196,6 +249,15 @@ impl JiraClient {
     }
 }
 
+fn epic_display_name(fields: &Value) -> String {
+    let name = fields["customfield_10002"]
+        .as_str()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| fields["summary"].as_str())
+        .unwrap_or("—");
+    name.to_string()
+}
+
 /// Jira error payloads look like {"errorMessages":[...],"errors":{...}}.
 fn extract_error(body: &str) -> String {
     if let Ok(v) = serde_json::from_str::<Value>(body) {
@@ -204,9 +266,10 @@ fn extract_error(body: &str) -> String {
             parts.extend(msgs.iter().filter_map(|m| m.as_str().map(String::from)));
         }
         if let Some(errs) = v["errors"].as_object() {
-            parts.extend(errs.iter().map(|(k, val)| {
-                format!("{k}: {}", val.as_str().unwrap_or_default())
-            }));
+            parts.extend(
+                errs.iter()
+                    .map(|(k, val)| format!("{k}: {}", val.as_str().unwrap_or_default())),
+            );
         }
         if !parts.is_empty() {
             return parts.join("; ");
@@ -238,9 +301,76 @@ fn description_text(v: &Value) -> String {
 mod tests {
     use super::*;
 
+    fn test_client() -> JiraClient {
+        JiraClient {
+            base: "https://jira.example".into(),
+            auth_header: "Bearer test".into(),
+            max_results: 50,
+            agent: ureq::AgentBuilder::new().build(),
+        }
+    }
+
+    #[test]
+    fn issue_parses_epic_link() {
+        let issue = test_client().parse_issue(&serde_json::json!({
+            "key": "PROJ-7",
+            "fields": {
+                "summary": "Child issue",
+                "status": {"name": "Backlog", "statusCategory": {"key": "new"}},
+                "issuetype": {"name": "Story"},
+                "customfield_10000": "PROJ-1"
+            }
+        }));
+        assert_eq!(issue.epic_link, "PROJ-1");
+        assert_eq!(issue.epic_name, "PROJ-1");
+    }
+
+    #[test]
+    fn issue_without_epic_link_uses_placeholder() {
+        let issue = test_client().parse_issue(&serde_json::json!({
+            "key": "PROJ-1",
+            "fields": {
+                "summary": "Epic",
+                "status": {"name": "In Progress", "statusCategory": {"key": "indeterminate"}},
+                "issuetype": {"name": "Epic"},
+                "customfield_10000": null
+            }
+        }));
+        assert_eq!(issue.epic_link, "—");
+        assert_eq!(issue.epic_name, "—");
+    }
+
+    #[test]
+    fn epic_name_prefers_jira_epic_name_over_summary() {
+        assert_eq!(
+            epic_display_name(&serde_json::json!({
+                "summary": "DPF Migration",
+                "customfield_10002": "DPF->CTD"
+            })),
+            "DPF->CTD"
+        );
+        assert_eq!(
+            epic_display_name(&serde_json::json!({
+                "summary": "Fallback summary",
+                "customfield_10002": null
+            })),
+            "Fallback summary"
+        );
+        assert_eq!(
+            epic_display_name(&serde_json::json!({
+                "summary": "Ignored summary",
+                "customfield_10002": "Payments Platform"
+            })),
+            "Payments Platform"
+        );
+    }
+
     #[test]
     fn description_plain_string_passes_through() {
-        assert_eq!(description_text(&Value::String("hi\nthere".into())), "hi\nthere");
+        assert_eq!(
+            description_text(&Value::String("hi\nthere".into())),
+            "hi\nthere"
+        );
         assert_eq!(description_text(&Value::Null), "");
     }
 

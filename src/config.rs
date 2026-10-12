@@ -48,7 +48,9 @@ pub struct SearchConfig {
 
 impl Default for SearchConfig {
     fn default() -> Self {
-        Self { jql: default_search_jql() }
+        Self {
+            jql: default_search_jql(),
+        }
     }
 }
 

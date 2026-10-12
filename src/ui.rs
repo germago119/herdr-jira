@@ -84,8 +84,15 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         .map(|&(i, depth)| {
             // Epics carry an expand indicator; their children are indented.
             let (prefix, key_style) = if is_epic(i) {
-                let arrow = if app.expanded.contains(&i.key) { "▾ " } else { "▸ " };
-                (arrow.to_string(), Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD))
+                let arrow = if app.expanded.contains(&i.key) {
+                    "▾ "
+                } else {
+                    "▸ "
+                };
+                (
+                    arrow.to_string(),
+                    Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                )
             } else if depth > 0 {
                 (" └ ".to_string(), Style::new().fg(ACCENT))
             } else {
@@ -94,8 +101,9 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             Row::new(vec![
                 Cell::from(format!("{prefix}{}", i.key)).style(key_style),
                 Cell::from(i.issue_type.clone()).style(type_style(&i.issue_type)),
-                Cell::from(i.status.clone()).style(Style::new().fg(status_color(&i.status_category))),
-                Cell::from(i.assignee.clone()).style(Style::new().fg(Color::Magenta)),
+                Cell::from(i.status.clone())
+                    .style(Style::new().fg(status_color(&i.status_category))),
+                Cell::from(i.epic_name.clone()).style(Style::new().fg(Color::Magenta)),
                 Cell::from(i.updated.clone()).style(Style::new().fg(Color::DarkGray)),
                 Cell::from(i.summary.clone()),
             ])
@@ -106,7 +114,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let table = Table::new(
         rows,
         [
-            Constraint::Length(15),
+            Constraint::Length(18),
             Constraint::Length(7),
             Constraint::Length(14),
             Constraint::Length(18),
@@ -115,10 +123,25 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
         ],
     )
     .header(
-        Row::new(vec!["KEY", "TYPE", "STATUS", "ASSIGNEE", "UPDATED", "SUMMARY"])
-            .style(Style::new().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
+        Row::new(vec![
+            "KEY",
+            "TYPE",
+            "STATUS",
+            "EPIC NAME",
+            "UPDATED",
+            "SUMMARY",
+        ])
+        .style(
+            Style::new()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ),
     )
-    .row_highlight_style(Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+    .row_highlight_style(
+        Style::new()
+            .bg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
+    )
     .block(block);
 
     let mut state = TableState::default();
@@ -126,16 +149,19 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(table, area, &mut state);
 
     if is_empty && !app.loading {
-        let empty = Paragraph::new("no issues — press r to refresh, f to pick a filter, / to search")
-            .style(Style::new().fg(Color::DarkGray))
-            .alignment(Alignment::Center);
+        let empty =
+            Paragraph::new("no issues — press r to refresh, f to pick a filter, / to search")
+                .style(Style::new().fg(Color::DarkGray))
+                .alignment(Alignment::Center);
         let inner = centered_rect(area, 80, 20);
         f.render_widget(empty, inner);
     }
 }
 
 fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
-    let Some(issue) = app.selected_issue() else { return };
+    let Some(issue) = app.selected_issue() else {
+        return;
+    };
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
             Span::styled(issue.key.clone(), Style::new().fg(ACCENT).bold()),
@@ -143,7 +169,11 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(issue.summary.clone(), Style::new().bold()),
         ]),
         Line::default(),
-        meta_line("Status", &issue.status, status_color(&issue.status_category)),
+        meta_line(
+            "Status",
+            &issue.status,
+            status_color(&issue.status_category),
+        ),
         meta_line("Type", &issue.issue_type, Color::White),
         meta_line("Priority", &issue.priority, Color::White),
         meta_line("Assignee", &issue.assignee, Color::Magenta),
@@ -157,7 +187,9 @@ fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::default());
     lines.push(Line::from(Span::styled(
         "Description",
-        Style::new().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+        Style::new()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::BOLD),
     )));
     let desc = if issue.description.trim().is_empty() {
         "(no description)".to_string()
@@ -197,10 +229,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::new().fg(Color::Black).bg(Color::Green)
             };
-            f.render_widget(
-                Paragraph::new(format!(" {msg} ")).style(style),
-                area,
-            );
+            f.render_widget(Paragraph::new(format!(" {msg} ")).style(style), area);
             return;
         }
     }
@@ -244,7 +273,10 @@ fn popup(f: &mut Frame, title: &str, width_pct: u16, height: u16) -> Rect {
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(ACCENT))
-            .title(Span::styled(format!(" {title} "), Style::new().fg(ACCENT).bold())),
+            .title(Span::styled(
+                format!(" {title} "),
+                Style::new().fg(ACCENT).bold(),
+            )),
         rect,
     );
     Rect {
@@ -259,7 +291,11 @@ fn render_picker_list(f: &mut Frame, inner: Rect, items: Vec<ListItem>, sel: usi
     let mut state = ListState::default();
     state.select(if items.is_empty() { None } else { Some(sel) });
     let list = List::new(items)
-        .highlight_style(Style::new().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::new()
+                .bg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("▸ ");
     f.render_stateful_widget(list, inner, &mut state);
 }
@@ -275,7 +311,10 @@ fn draw_filter_picker(f: &mut Frame, app: &App) {
         .map(|(i, flt)| {
             let marker = if i == app.filter_idx { "● " } else { "  " };
             ListItem::new(Line::from(vec![
-                Span::styled(format!("{}{}. ", marker, i + 1), Style::new().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}{}. ", marker, i + 1),
+                    Style::new().fg(Color::DarkGray),
+                ),
                 Span::raw(flt.name.clone()),
             ]))
         })
@@ -302,7 +341,10 @@ fn draw_transition_picker(f: &mut Frame, app: &App) {
             ListItem::new(Line::from(vec![
                 num_span(i),
                 Span::raw(t.name.clone()),
-                Span::styled(format!("  → {}", t.to_status), Style::new().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("  → {}", t.to_status),
+                    Style::new().fg(Color::DarkGray),
+                ),
             ]))
         })
         .collect();
@@ -349,7 +391,10 @@ fn draw_agent_picker(f: &mut Frame, app: &App) {
             num_span(row),
             Span::styled(format!("{:<10}", a.label), Style::new().fg(ACCENT).bold()),
             Span::styled(format!("{:<9}", a.status), Style::new().fg(status_color)),
-            Span::styled(format!("{:<8}", a.pane_id), Style::new().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{:<8}", a.pane_id),
+                Style::new().fg(Color::DarkGray),
+            ),
             Span::raw(cwd),
         ])));
     }
@@ -380,10 +425,7 @@ fn draw_new_agent_type_picker(f: &mut Frame, app: &App) {
             let cmd = a.command.join(" ");
             ListItem::new(Line::from(vec![
                 num_span(i),
-                Span::styled(
-                    format!("{:<12}", a.name),
-                    Style::new().fg(ACCENT).bold(),
-                ),
+                Span::styled(format!("{:<12}", a.name), Style::new().fg(ACCENT).bold()),
                 Span::styled(cmd, Style::new().fg(Color::DarkGray)),
             ]))
         })
@@ -486,12 +528,7 @@ fn draw_new_agent_cwd_picker(f: &mut Frame, app: &App) {
         .cwd_choices
         .iter()
         .enumerate()
-        .map(|(i, p)| {
-            ListItem::new(Line::from(vec![
-                num_span(i),
-                Span::raw(short_path(p)),
-            ]))
-        })
+        .map(|(i, p)| ListItem::new(Line::from(vec![num_span(i), Span::raw(short_path(p))])))
         .collect();
     items.push(ListItem::new(Line::from(vec![
         num_span(app.cwd_choices.len()),
@@ -602,7 +639,10 @@ fn draw_fatal(f: &mut Frame, err: &str) {
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(Color::Red))
         .padding(Padding::uniform(1))
-        .title(Span::styled(" herdr-jira: configuration ", Style::new().fg(Color::Red).bold()));
+        .title(Span::styled(
+            " herdr-jira: configuration ",
+            Style::new().fg(Color::Red).bold(),
+        ));
     let text = format!("{err}\n\nR — retry after fixing the config, q — quit");
     f.render_widget(
         Paragraph::new(text).wrap(Wrap { trim: false }).block(block),
