@@ -21,9 +21,11 @@ email = ""
 
 # Provide the token either inline...
 api_token = "YOUR_PERSONAL_ACCESS_TOKEN"
-# ...or (recommended) via a shell command that prints it, e.g. macOS Keychain:
-#   security add-generic-password -s jira-api-token -a "$USER" -w '<TOKEN>'
-# api_token_cmd = "security find-generic-password -s jira-api-token -w"
+# ...or (recommended) via a shell command that prints it, e.g. a keyring:
+#   Linux:  secret-tool store --label jira-api-token service jira-api-token
+#   macOS:  security add-generic-password -s jira-api-token -a "$USER" -w '<TOKEN>'
+# api_token_cmd = "secret-tool lookup service jira-api-token"   # Linux
+# api_token_cmd = "security find-generic-password -s jira-api-token -w"   # macOS
 
 # Default project key. Substituted for {project} in filters and search JQL.
 default_project = "PROJECTKEY"
@@ -108,13 +110,13 @@ wait_ready_ms = 30000
 # Keep [delegate] settings ABOVE these array entries (TOML table scoping).
 # Agents offered in that wizard (name is the label; command is shell-quoted argv):
 [[delegate.agents]]
-name = "claude"
-command = ["claude"]
+name = "copilot"
+command = ["copilot"]
 
 [[delegate.agents]]
-name = "codex"
-command = ["codex"]
+name = "omp"
+command = ["omp"]
 
 [[delegate.agents]]
-name = "grok"
-command = ["grok"]
+name = "pi"
+command = ["pi"]
